@@ -2,11 +2,6 @@ package main
 
 import (
 	"flag"
-	"github.com/chzyer/readline"
-	"github.com/sagernet/sagerconnect/api"
-	"github.com/sagernet/sagerconnect/core"
-	"github.com/sagernet/sagerconnect/tun"
-	"github.com/xjasonlyu/tun2socks/log"
 	"net"
 	"os"
 	"os/signal"
@@ -14,6 +9,12 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/chzyer/readline"
+	"github.com/sagernet/sagerconnect/api"
+	"github.com/sagernet/sagerconnect/core"
+	"github.com/sagernet/sagerconnect/tun"
+	"github.com/xjasonlyu/tun2socks/log"
 )
 
 //go:generate goversioninfo --platform-specific
@@ -23,6 +24,11 @@ type scanResult struct {
 	addr     *net.UDPAddr
 	nif      *net.Interface
 	response *api.Response
+}
+
+type InterfaceAndAddr struct {
+	iface *net.Interface
+	addr  *net.IPNet
 }
 
 func main() {
@@ -54,21 +60,21 @@ func main() {
 
 		//core.Must0(api.ParseQuery(query))
 
-		ifs, err := net.Interfaces()
-		core.Must("lookup network interfaces", err)
+		ifacesAndAddr, err := GetIPv4FromInterfaces()
+		if len(ifacesAndAddr) == 0 {
+			core.Must("no available network interface", err)
+		}
 
 		rc := make(chan scanResult)
-		rErr := scanResult{false, nil, nil, nil}
 
-		for _, nif := range ifs {
-			nif := nif
-			go func() {
-				mcr, _ := nif.MulticastAddrs()
+		for _, ifaceAndAddr := range ifacesAndAddr {
+			go func(ifaceAndAddr InterfaceAndAddr) {
+				rErr := scanResult{false, nil, nil, nil}
 				conn, err := net.ListenUDP("udp4", &net.UDPAddr{
-					IP: net.ParseIP(mcr[0].String()),
+					IP: ifaceAndAddr.addr.IP,
 				})
 
-				core.Maybef("create multicast conn on if %s", err, nif.Name)
+				core.Maybef("create multicast conn on if %s", err, ifaceAndAddr.iface.Name)
 				if err != nil {
 					rc <- rErr
 					return
@@ -78,7 +84,7 @@ func main() {
 					Port: 11451,
 				})
 
-				core.Maybef("send scan query on %s", err, nif.Name)
+				core.Maybef("send scan query on %s", err, ifaceAndAddr.iface.Name)
 				if err != nil {
 					rc <- rErr
 					return
@@ -110,14 +116,14 @@ func main() {
 				rc <- scanResult{
 					ok:       true,
 					addr:     addr,
-					nif:      &nif,
+					nif:      ifaceAndAddr.iface,
 					response: response,
 				}
-			}()
+			}(ifaceAndAddr)
 		}
 
 		deviceMap := make(map[string]scanResult)
-		for _ = range ifs {
+		for range ifacesAndAddr {
 			result := <-rc
 			if !result.ok {
 				continue
@@ -226,4 +232,25 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 	tun2socks.Close()
 	log.Infof("Closed")
+}
+
+func GetIPv4FromInterfaces() (ifacesAndAddr []InterfaceAndAddr, err error) {
+	ifaces, err := net.Interfaces()
+
+	for _, iface := range ifaces {
+		var laddrs []net.Addr
+		laddrs, err = iface.Addrs()
+
+		for _, laddr := range laddrs {
+			if addr, isIPNet := laddr.(*net.IPNet); isIPNet && addr.IP.To4() != nil && !addr.IP.IsLoopback() && !addr.IP.IsLinkLocalUnicast() {
+				ifacesAndAddr = append(ifacesAndAddr, InterfaceAndAddr{
+					iface: &iface,
+					addr:  addr,
+				})
+				break
+			}
+		}
+	}
+
+	return
 }
