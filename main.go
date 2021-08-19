@@ -26,9 +26,9 @@ type scanResult struct {
 	response *api.Response
 }
 
-type InterfaceAndAddr struct {
-	iface *net.Interface
-	addr  *net.IPNet
+type ifAddr struct {
+	nif  *net.Interface
+	inet *net.IPNet
 }
 
 func main() {
@@ -60,21 +60,21 @@ func main() {
 
 		//core.Must0(api.ParseQuery(query))
 
-		ifacesAndAddr, err := GetIPv4FromInterfaces()
-		if len(ifacesAndAddr) == 0 {
-			core.Must("no available network interface", err)
+		ifAddrs, err := listIfAddr()
+		if len(ifAddrs) == 0 {
+			core.Must("get available network interface", err)
 		}
 
 		rc := make(chan scanResult)
-
-		for _, ifaceAndAddr := range ifacesAndAddr {
-			go func(ifaceAndAddr InterfaceAndAddr) {
+		for _, ifAddr := range ifAddrs {
+			ifAddr := ifAddr
+			go func() {
 				rErr := scanResult{false, nil, nil, nil}
 				conn, err := net.ListenUDP("udp4", &net.UDPAddr{
-					IP: ifaceAndAddr.addr.IP,
+					IP: ifAddr.inet.IP,
 				})
 
-				core.Maybef("create multicast conn on if %s", err, ifaceAndAddr.iface.Name)
+				core.Maybef("create multicast conn on if %s", err, ifAddr.nif.Name)
 				if err != nil {
 					rc <- rErr
 					return
@@ -84,12 +84,12 @@ func main() {
 					Port: 11451,
 				})
 
-				core.Maybef("send scan query on %s", err, ifaceAndAddr.iface.Name)
+				core.Maybef("send scan query on %s", err, ifAddr.nif.Name)
 				if err != nil {
 					rc <- rErr
 					return
 				}
-				_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 				buffer := make([]byte, 2048)
 				length, addr, err := conn.ReadFromUDP(buffer)
 
@@ -116,14 +116,14 @@ func main() {
 				rc <- scanResult{
 					ok:       true,
 					addr:     addr,
-					nif:      ifaceAndAddr.iface,
+					nif:      ifAddr.nif,
 					response: response,
 				}
-			}(ifaceAndAddr)
+			}()
 		}
 
 		deviceMap := make(map[string]scanResult)
-		for range ifacesAndAddr {
+		for range ifAddrs {
 			result := <-rc
 			if !result.ok {
 				continue
@@ -234,18 +234,23 @@ func main() {
 	log.Infof("Closed")
 }
 
-func GetIPv4FromInterfaces() (ifacesAndAddr []InterfaceAndAddr, err error) {
-	ifaces, err := net.Interfaces()
+func listIfAddr() (ifAddrs []ifAddr, err error) {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
 
-	for _, iface := range ifaces {
-		var laddrs []net.Addr
-		laddrs, err = iface.Addrs()
+	for _, nif := range ifs {
+		addrs, err := nif.Addrs()
+		if err != nil {
+			return nil, err
+		}
 
-		for _, laddr := range laddrs {
-			if addr, isIPNet := laddr.(*net.IPNet); isIPNet && addr.IP.To4() != nil && !addr.IP.IsLoopback() && !addr.IP.IsLinkLocalUnicast() {
-				ifacesAndAddr = append(ifacesAndAddr, InterfaceAndAddr{
-					iface: &iface,
-					addr:  addr,
+		for _, addr := range addrs {
+			if addr, isIPNet := addr.(*net.IPNet); isIPNet && addr.IP.To4() != nil && !addr.IP.IsLoopback() && !addr.IP.IsLinkLocalUnicast() {
+				ifAddrs = append(ifAddrs, ifAddr{
+					nif:  &nif,
+					inet: addr,
 				})
 				break
 			}
