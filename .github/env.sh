@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export VERSION="0.1.6"
+export VERSION="0.1.7"
 
 if [ -z "$ANDROID_HOME" ]; then
   if [ -d "$HOME/Android/Sdk" ]; then
