@@ -61,9 +61,9 @@ func main() {
 
 		//core.Must0(api.ParseQuery(query))
 
-		ifAddrs, err := listIfAddr()
+		ifAddrs := listIfAddr()
 		if len(ifAddrs) == 0 {
-			core.Must("get available network interface", err)
+			log.Fatalf("failed to get available network interfaces")
 		}
 
 		rc := make(chan scanResult)
@@ -246,16 +246,15 @@ func main() {
 	log.Infof("Closed")
 }
 
-func listIfAddr() (ifAddrs []ifAddr, err error) {
+func listIfAddr() (ifAddrs []ifAddr) {
 	ifs, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
+	core.Must("get interfaces", err)
 
 	for _, nif := range ifs {
 		addrs, err := nif.Addrs()
 		if err != nil {
-			return nil, err
+			core.Maybef("get the address of interface [%s]", err, nif.Name)
+			continue
 		}
 
 		for _, addr := range addrs {
