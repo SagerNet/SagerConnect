@@ -8,7 +8,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/ulikunitz/xz v0.5.10
 	github.com/xjasonlyu/tun2socks v1.18.4-0.20210813034434-85cf694b8fed
-	golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e
+	golang.org/x/sys v0.1.0
 )
 
 replace github.com/xjasonlyu/tun2socks v1.18.4-0.20210813034434-85cf694b8fed => github.com/sagernet/tun2socks v1.18.4-0.20210820015834-2ee7f3879e14
